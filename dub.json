@@ -1,0 +1,13 @@
+{
+	"name": "github",
+	"authors": [
+		"Andreas Zwinkau"
+	],
+	"dependencies": {
+		"requests": "~>0.1.8",
+		"std_data_json": "~>0.18.1"
+	},
+	"description": "GitHub API",
+	"copyright": "Copyright © 2016, Andreas Zwinkau",
+	"license": "BSL-1.0"
+}

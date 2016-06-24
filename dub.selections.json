@@ -1,0 +1,8 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"requests": "0.1.8",
+		"std_data_json": "0.18.1",
+		"taggedalgebraic": "0.10.2"
+	}
+}
