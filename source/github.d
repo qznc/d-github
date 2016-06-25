@@ -23,6 +23,10 @@ class Client {
         return new User(this, name);
     }
 
+    public auto getRepo(string user, string repo) {
+        return new Repo(this, user, repo);
+    }
+
     public auto getRootURL(string key) {
         return roots[key];
     }
@@ -79,10 +83,58 @@ class User {
     @property public long public_gists() { return uinfo["public_gists"].integer; }
     @property public long followers() { return uinfo["followers"].integer; }
     @property public long following() { return uinfo["following"].integer; }
+
+    public Repo getRepo(string name) {
+        return client_.getRepo(name_, name);
+    }
+}
+
+class Repo {
+    Client client_;
+    const string uname_;
+    const string rname_;
+    JSONValue rinfo_ = JSONValue(null);
+
+    this(Client c, string uname, string rname) {
+        this.client_ = c;
+        this.uname_ = uname;
+        this.rname_ = rname;
+    }
+
+    @property private auto rinfo() {
+        if (rinfo_.isNull) {
+            string url = client_.getRootURL("repository_url");
+            url = url.replace("{owner}", uname_).replace("{repo}", rname_);
+            auto c = getContent(url);
+            rinfo_ = parseJSON(c);
+        }
+        return rinfo_;
+    }
+
+    @property private string rinfoStr(string key)() {
+        auto v = rinfo[key];
+        if (v.type == JSON_TYPE.STRING)
+            return v.str;
+        else
+            return null;
+    }
+
+    @property public string name() { return rinfoStr!"name"(); }
+    @property public string full_name() { return rinfoStr!"full_name"(); }
+    @property public string description() { return rinfoStr!"description"(); }
+    @property public string ssh_url() { return rinfoStr!"ssh_url"(); }
+    @property public string language() { return rinfoStr!"language"(); }
+    @property public string default_branch() { return rinfoStr!"default_branch"(); }
+    @property public string svn_url() { return rinfoStr!"svn_url"(); }
+    @property public string html_url() { return rinfoStr!"html_url"(); }
 }
 
 unittest {
     auto github = new Client("d-github-unittest");
+    //foreach(k,v; github.roots) writeln(k, ": ", v);
     auto user = github.getUser("qznc");
     writeln(user.followers, " folks love ", user.name, "!");
+    auto repo = user.getRepo("d-money");
+    foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
+    writeln(repo.description);
 }
