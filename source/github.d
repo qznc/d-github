@@ -127,14 +127,22 @@ class Repo {
     @property public string default_branch() { return rinfoStr!"default_branch"(); }
     @property public string svn_url() { return rinfoStr!"svn_url"(); }
     @property public string html_url() { return rinfoStr!"html_url"(); }
+
+    @property public auto pullRequests() {
+        auto url = rinfoStr!"pulls_url".replace("{/number}", "");
+        auto c = getContent(url);
+        auto j = parseJSON(c);
+        foreach (v; j.array) writeln("PR: ", v["title"].str);
+    }
 }
 
 unittest {
     auto github = new Client("d-github-unittest");
     //foreach(k,v; github.roots) writeln(k, ": ", v);
-    auto user = github.getUser("qznc");
+    auto user = github.getUser("dlang");
     writeln(user.followers, " folks love ", user.name, "!");
-    auto repo = user.getRepo("d-money");
-    foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
+    auto repo = user.getRepo("phobos");
+    //foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
     writeln(repo.description);
+    repo.pullRequests();
 }
