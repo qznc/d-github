@@ -85,6 +85,7 @@ class Client {
         /* actual network access */
         auto token = environment["GITHUB_OAUTH_TOKEN"];
         rq.addHeaders(["Authorization": "token "~token,
+                "User-Agent": appname,
                 "Accept": ACCEPT_JSON]);
         auto res = rq.get(url);
         auto txt = text(res.responseBody);
