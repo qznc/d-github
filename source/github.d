@@ -216,7 +216,7 @@ struct paginated(T) {
 }
 
 unittest {
-    auto github = new Client("d-github-unittest");
+    auto github = new Client("https://github.com/qznc/d-github");
     //foreach(k,v; github.roots) writeln(k, ": ", v);
     auto user = github.getUser("dlang");
     writeln(user.followers, " folks love ", user.name, "!");
