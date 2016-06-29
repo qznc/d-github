@@ -8,6 +8,8 @@ import std.string : replace;
 import std.process : environment;
 import std.regex : ctRegex, matchFirst;
 import std.algorithm : splitter;
+import std.datetime : Clock, SysTime, dur;
+import std.exception : assertThrown;
 
 import requests : HTTPRequest;
 
@@ -21,11 +23,6 @@ auto getResponse(string url) {
     rq.addHeaders(["Authorization": "token "~token,
         "Accept": ACCEPT_JSON]);
     return rq.get(url);
-}
-
-string getContent(string url) {
-    auto res = getResponse(url);
-    return text(res.responseBody);
 }
 
 class Client {
@@ -50,12 +47,61 @@ class Client {
 
     @property public const(string[string]) roots() {
         if (roots_ == null) {
-            auto c = getContent(GITHUB_ROOT);
+            auto c = this.getContent(GITHUB_ROOT);
             auto j = parseJSON(c);
             foreach(string k, v; j)
                 roots_[k] = v.str;
         }
         return roots_;
+    }
+
+    /* To reduce traffic, we need some CACHING */
+    immutable NO_GET_DURATION = dur!"seconds"(10);
+    struct url_metainfo {
+        size_t content_size;
+        SysTime last_get;
+        string etag, mdate;
+    }
+    url_metainfo[string] cacheinfo;
+    string[string] cache;
+    size_t cache_size;
+
+    string getContent(string url) {
+        auto rq = HTTPRequest();
+        rq.verbosity = 2; // DEBUG
+        auto now = Clock.currTime();
+        if (url in cacheinfo) {
+            /* we have something in cache */
+            auto meta = cacheinfo[url];
+            if ((now - meta.last_get) < NO_GET_DURATION) {
+                return cache[url];
+            }
+            /* try to avoid data transfer via etag */
+            if (meta.etag)
+                rq.addHeaders(["If-None-Match": meta.etag]);
+            if (meta.mdate)
+                rq.addHeaders(["If-Modified-Since": meta.mdate]);
+        }
+        /* actual network access */
+        auto token = environment["GITHUB_OAUTH_TOKEN"];
+        rq.addHeaders(["Authorization": "token "~token,
+                "Accept": ACCEPT_JSON]);
+        auto res = rq.get(url);
+        auto txt = text(res.responseBody);
+        insertIntoCache(url, txt, now,
+            res.responseHeaders.get("etag", ""),
+            res.responseHeaders.get("Last-Modified", ""));
+        return txt;
+    }
+
+    void insertIntoCache(string url, string data,
+        SysTime last_get = Clock.currTime(),
+        string etag = "", string mdate = "")
+    {
+        cacheinfo[url] = url_metainfo(data.length, last_get, etag, mdate);
+        cache[url] = data;
+        cache_size += data.length;
+        // TODO Evict things from cache! This is a memory leak.
     }
 }
 
@@ -73,7 +119,7 @@ class User {
         if (uinfo_.isNull) {
             string url = client_.getRootURL("user_url");
             url = url.replace("{user}", name_);
-            auto c = getContent(url);
+            auto c = client_.getContent(url);
             uinfo_ = parseJSON(c);
         }
         return uinfo_;
@@ -122,7 +168,7 @@ class Repo {
         if (rinfo_.isNull) {
             string url = client_.getRootURL("repository_url");
             url = url.replace("{owner}", uname_).replace("{repo}", rname_);
-            auto c = getContent(url);
+            auto c = client_.getContent(url);
             rinfo_ = parseJSON(c);
         }
         return rinfo_;
@@ -147,7 +193,7 @@ class Repo {
 
     @property public auto pullRequests() {
         auto url = rinfoStr!"pulls_url".replace("{/number}", "");
-        auto c = getContent(url);
+        auto c = client_.getContent(url);
         auto j = parseJSON(c);
         foreach (v; j.array) writeln("PR: ", v["title"].str);
     }
@@ -159,7 +205,7 @@ class Repo {
 
     @property public auto collaborators() {
         auto url = rinfoStr!"collaborators_url"();
-        auto c = getContent(url);
+        auto c = client_.getContent(url);
         auto j = parseJSON(c);
     }
 }
@@ -224,6 +270,29 @@ unittest {
     //foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
     writeln(repo.description);
     repo.pullRequests();
-    foreach(u; repo.contributors())
+    size_t n = 0;
+    foreach(u; repo.contributors()) {
+        if (n > 40) break;
+        n += 1;
         writeln("contrib: ", u.login);
+    }
+    auto u2 = github.getUser("dlang");
+    writeln(u2.name);
+}
+
+unittest {
+    auto github = new Client("https://github.com/qznc/d-github");
+    github.insertIntoCache(GITHUB_ROOT, `{
+            "current_user_url": "https://api.github.com/user",
+            "rate_limit_url": "https://api.github.com/rate_limit",
+            "repository_url": "https://api.github.com/repos/{owner}/{repo}",
+            "fake_entry": "HAHAHA"
+    }`, Clock.currTime()); // cache prevents network access ;)
+    /* normal usage would be */
+    assert (github.getRootURL("current_user_url") == "https://api.github.com/user");
+    /* check we actually got the entry from cache */
+    assert (github.getRootURL("fake_entry") == "HAHAHA");
+    /* the cache entry has no url for user info */
+    import core.exception : RangeError;
+    assertThrown!RangeError(github.getUser("dlang").name);
 }
