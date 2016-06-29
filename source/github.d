@@ -18,7 +18,8 @@ auto getResponse(string url) {
     auto token = environment["GITHUB_OAUTH_TOKEN"];
     auto rq = HTTPRequest();
     rq.verbosity = 2;
-    rq.addHeaders(["Authorization": "token "~token]);
+    rq.addHeaders(["Authorization": "token "~token,
+        "Accept": ACCEPT_JSON]);
     return rq.get(url);
 }
 
