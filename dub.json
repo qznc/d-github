@@ -4,7 +4,7 @@
 		"Andreas Zwinkau"
 	],
 	"dependencies": {
-		"requests": "~>0.1.8",
+		"requests": "~>0.1.9",
 	},
 	"description": "GitHub API",
 	"copyright": "Copyright © 2016, Andreas Zwinkau",

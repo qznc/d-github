@@ -5,11 +5,27 @@ import std.json : parseJSON, JSONValue, JSON_TYPE;
 import std.conv : text;
 import std.array : empty;
 import std.string : replace;
+import std.process : environment;
+import std.regex : ctRegex, matchFirst;
+import std.algorithm : splitter;
 
-import requests : getContent;
+import requests : HTTPRequest;
 
 enum ACCEPT_JSON = "application/vnd.github.v3+json";
 enum GITHUB_ROOT = "https://api.github.com";
+
+auto getResponse(string url) {
+    auto token = environment["GITHUB_OAUTH_TOKEN"];
+    auto rq = HTTPRequest();
+    rq.verbosity = 2;
+    rq.addHeaders(["Authorization": "token "~token]);
+    return rq.get(url);
+}
+
+string getContent(string url) {
+    auto res = getResponse(url);
+    return text(res.responseBody);
+}
 
 class Client {
     string appname;
@@ -70,7 +86,7 @@ class User {
             return null;
     }
 
-    @property public string login() { return uinfoStr!"login"(); }
+    @property public string login() { return name_; }
     @property public string avatar_url() { return uinfoStr!"avatar_url"(); }
     @property public string html_url() { return uinfoStr!"html_url"(); }
     @property public bool site_admin() { return uinfoStr!"site_admin"() == "true"; }
@@ -134,6 +150,68 @@ class Repo {
         auto j = parseJSON(c);
         foreach (v; j.array) writeln("PR: ", v["title"].str);
     }
+
+    @property public auto contributors() {
+        auto url = rinfoStr!"contributors_url"();
+        return paginated!User(client_, url);
+    }
+
+    @property public auto collaborators() {
+        auto url = rinfoStr!"collaborators_url"();
+        auto c = getContent(url);
+        auto j = parseJSON(c);
+    }
+}
+
+struct paginated(T) {
+    immutable int default_items_per_page = 30;
+    size_t items_on_page = default_items_per_page;
+    size_t i = 0;
+    Client client_;
+    string next_url;
+    JSONValue current;
+
+    this (Client c, string url) {
+        this.client_ = c;
+        this.next_url = url;
+        updateCurrent();
+    }
+
+    @property auto front() {
+        return new T(client_, current[i]["login"].str);
+    }
+
+    void popFront() {
+        if (i+1 < items_on_page) {
+            i += 1;
+        } else {
+            i = 0;
+            updateCurrent();
+        }
+    }
+
+    @property bool empty() { return current.isNull; }
+
+    private void updateCurrent() {
+        if (next_url == null) {
+            current = null;
+            return;
+        }
+        auto r = getResponse(next_url);
+        auto link = r.responseHeaders["link"];
+        next_url = null; /* stays null if last page */
+        foreach (l; link.splitter(',')) {
+            auto ctr = ctRegex!("<([^>]*)>; rel=\"([^\"]*)\"");
+            auto m = matchFirst(l, ctr);
+            auto url = m[1];
+            auto rel = m[2];
+            if (rel == "next")
+                next_url = url;
+        }
+        current = parseJSON(r.responseBody);
+        assert (current.array.length <= items_on_page);
+        items_on_page = current.array.length;
+    }
 }
 
 unittest {
@@ -145,4 +223,6 @@ unittest {
     //foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
     writeln(repo.description);
     repo.pullRequests();
+    foreach(u; repo.contributors())
+        writeln("contrib: ", u.login);
 }
