@@ -238,13 +238,10 @@ class PullRequest : LazyJSONObject {
     const size_t id;
 
     this(Client c, JSONValue o) {
-        super(c, o);
-        this.id = o["id"].integer;
+        this(c, o["_links"]["self"]["href"].str);
     }
 
-    this(Client c, size_t id) {
-        auto url = c.getRootURL("pulls_url")
-            .replace("{/number}", text("/", id));
+    this(Client c, string url) {
         super(c, url);
         this.id = id;
     }
@@ -256,7 +253,14 @@ class PullRequest : LazyJSONObject {
     @property public string updated_at() { return getStr!"updated_at"(); }
     @property public string closed_at() { return getStr!"closed_at"(); }
     @property public string merged_at() { return getStr!"merged_at"(); }
-    @property public bool locked() { return getBool!"merged_at"(); }
+    @property public bool locked() { return getBool!"locked"(); }
+    @property public bool merged() { return getBool!"merged"(); }
+    @property public bool mergeable() { return getBool!"mergeable"(); }
+    @property public size_t comments() { return getInt!"comments"(); }
+    @property public size_t commits() { return getInt!"commits"(); }
+    @property public size_t additions() { return getInt!"additions"(); }
+    @property public size_t deletions() { return getInt!"deletions"(); }
+    @property public size_t changedFiles() { return getInt!"changed_files"(); }
 }
 
 struct paginated(T) {
@@ -320,6 +324,7 @@ unittest {
     writeln(repo.description);
     foreach (pr; repo.pullRequests()) {
         writeln("PR: ", pr.title);
+        break;
     }
     size_t n = 0;
     foreach(u; repo.contributors()) {
