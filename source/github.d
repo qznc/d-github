@@ -153,6 +153,14 @@ class User {
     }
 }
 
+class Contributor : User {
+    public const size_t contributionCount;
+    this(Client c, JSONValue contributor) {
+        super(c, contributor["login"].str);
+        contributionCount = contributor["contributions"].integer;
+    }
+}
+
 class Repo {
     Client client_;
     const string uname_;
@@ -201,7 +209,7 @@ class Repo {
 
     @property public auto contributors() {
         auto url = rinfoStr!"contributors_url"();
-        return paginated!User(client_, url);
+        return paginated!Contributor(client_, url);
     }
 
     @property public auto collaborators() {
@@ -226,7 +234,7 @@ struct paginated(T) {
     }
 
     @property auto front() {
-        return new T(client_, current[i]["login"].str);
+        return new T(client_, current[i]);
     }
 
     void popFront() {
@@ -275,7 +283,7 @@ unittest {
     foreach(u; repo.contributors()) {
         if (n > 40) break;
         n += 1;
-        writeln("contrib: ", u.login);
+        writeln("contributor ", u.login, " has ", u.contributionCount, " commits");
     }
     auto u2 = github.getUser("dlang");
     writeln(u2.name);
