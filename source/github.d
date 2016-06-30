@@ -25,6 +25,57 @@ auto getResponse(string url) {
     return rq.get(url);
 }
 
+/* fetch JSON info on demand */
+class LazyJSONObject {
+    Client client;
+    string url;
+    JSONValue value;
+
+    this (Client c, string url) {
+        this.client = c;
+        this.url = url;
+    }
+
+    this (Client c, JSONValue v) {
+        this.client = c;
+        this.value = v;
+    }
+
+    @property private JSONValue jsonObj() {
+        if (value.isNull) {
+            auto c = client.getContent(url);
+            value = parseJSON(c);
+        }
+        return value;
+    }
+
+    @property private string getStr(string key)() {
+        const v = jsonObj[key];
+        if (v.type == JSON_TYPE.STRING)
+            return v.str;
+        else
+            return null;
+    }
+
+    @property private size_t getInt(string key)() {
+        const v = jsonObj[key];
+        if (v.type == JSON_TYPE.INTEGER)
+            return v.integer;
+        else
+            return 0;
+    }
+
+    @property private bool getBool(string key)() {
+        const v = jsonObj[key];
+        if (v.type == JSON_TYPE.TRUE)
+            return true;
+        else if (v.type == JSON_TYPE.FALSE)
+            return false;
+        else
+            assert (0);
+    }
+}
+
 class Client {
     string appname;
     string[string] roots_;
@@ -106,50 +157,31 @@ class Client {
     }
 }
 
-class User {
-    Client client_;
+class User : LazyJSONObject {
     const string name_;
-    JSONValue uinfo_ = JSONValue(null);
 
     this(Client c, string name) {
-        this.client_ = c;
+        const url = c.getRootURL("user_url").replace("{user}", name);
+        super(c, url);
         this.name_ = name;
     }
 
-    @property private auto uinfo() {
-        if (uinfo_.isNull) {
-            string url = client_.getRootURL("user_url");
-            url = url.replace("{user}", name_);
-            auto c = client_.getContent(url);
-            uinfo_ = parseJSON(c);
-        }
-        return uinfo_;
-    }
-
-    @property private string uinfoStr(string key)() {
-        auto v = uinfo[key];
-        if (v.type == JSON_TYPE.STRING)
-            return v.str;
-        else
-            return null;
-    }
-
     @property public string login() { return name_; }
-    @property public string avatar_url() { return uinfoStr!"avatar_url"(); }
-    @property public string html_url() { return uinfoStr!"html_url"(); }
-    @property public bool site_admin() { return uinfoStr!"site_admin"() == "true"; }
-    @property public string name() { return uinfoStr!"name"(); }
-    @property public string company() { return uinfoStr!"company"(); }
-    @property public string blog() { return uinfoStr!"blog"(); }
-    @property public string email() { return uinfoStr!"email"(); }
-    @property public string bio() { return uinfoStr!"bio"(); }
-    @property public long public_repos() { return uinfo["public_repos"].integer; }
-    @property public long public_gists() { return uinfo["public_gists"].integer; }
-    @property public long followers() { return uinfo["followers"].integer; }
-    @property public long following() { return uinfo["following"].integer; }
+    @property public string avatar_url() { return getStr!"avatar_url"(); }
+    @property public string html_url() { return getStr!"html_url"(); }
+    @property public bool site_admin() { return getStr!"site_admin"() == "true"; }
+    @property public string name() { return getStr!"name"(); }
+    @property public string company() { return getStr!"company"(); }
+    @property public string blog() { return getStr!"blog"(); }
+    @property public string email() { return getStr!"email"(); }
+    @property public string bio() { return getStr!"bio"(); }
+    @property public long public_repos() { return getInt!"public_repos"; }
+    @property public long public_gists() { return getInt!"public_gists"; }
+    @property public long followers() { return getInt!"followers"; }
+    @property public long following() { return getInt!"following"; }
 
     public Repo getRepo(string name) {
-        return client_.getRepo(name_, name);
+        return client.getRepo(name_, name);
     }
 }
 
@@ -161,62 +193,70 @@ class Contributor : User {
     }
 }
 
-class Repo {
-    Client client_;
+class Repo : LazyJSONObject {
     const string uname_;
     const string rname_;
-    JSONValue rinfo_ = JSONValue(null);
 
-    this(Client c, string uname, string rname) {
-        this.client_ = c;
-        this.uname_ = uname;
-        this.rname_ = rname;
+    this(Client c, string user, string repo) {
+        assert (!user.empty);
+        assert (!repo.empty);
+        auto url = c.getRootURL("repository_url")
+            .replace("{owner}", user)
+            .replace("{repo}", repo);
+        super(c, url);
+        this.uname_ = user;
+        this.rname_ = repo;
     }
 
-    @property private auto rinfo() {
-        if (rinfo_.isNull) {
-            string url = client_.getRootURL("repository_url");
-            url = url.replace("{owner}", uname_).replace("{repo}", rname_);
-            auto c = client_.getContent(url);
-            rinfo_ = parseJSON(c);
-        }
-        return rinfo_;
-    }
-
-    @property private string rinfoStr(string key)() {
-        auto v = rinfo[key];
-        if (v.type == JSON_TYPE.STRING)
-            return v.str;
-        else
-            return null;
-    }
-
-    @property public string name() { return rinfoStr!"name"(); }
-    @property public string full_name() { return rinfoStr!"full_name"(); }
-    @property public string description() { return rinfoStr!"description"(); }
-    @property public string ssh_url() { return rinfoStr!"ssh_url"(); }
-    @property public string language() { return rinfoStr!"language"(); }
-    @property public string default_branch() { return rinfoStr!"default_branch"(); }
-    @property public string svn_url() { return rinfoStr!"svn_url"(); }
-    @property public string html_url() { return rinfoStr!"html_url"(); }
+    @property public string name() { return getStr!"name"(); }
+    @property public string full_name() { return getStr!"full_name"(); }
+    @property public string description() { return getStr!"description"(); }
+    @property public string ssh_url() { return getStr!"ssh_url"(); }
+    @property public string language() { return getStr!"language"(); }
+    @property public string default_branch() { return getStr!"default_branch"(); }
+    @property public string svn_url() { return getStr!"svn_url"(); }
+    @property public string html_url() { return getStr!"html_url"(); }
 
     @property public auto pullRequests() {
-        auto url = rinfoStr!"pulls_url".replace("{/number}", "");
-        auto c = client_.getContent(url);
-        auto j = parseJSON(c);
-        foreach (v; j.array) writeln("PR: ", v["title"].str);
+        auto url = getStr!"pulls_url".replace("{/number}", "");
+        return paginated!PullRequest(client, url);
     }
 
     @property public auto contributors() {
-        auto url = rinfoStr!"contributors_url"();
-        return paginated!Contributor(client_, url);
+        auto url = getStr!"contributors_url"();
+        return paginated!Contributor(client, url);
     }
 
     @property public auto collaborators() {
-        auto url = rinfoStr!"collaborators_url"();
-        auto c = client_.getContent(url);
+        auto url = getStr!"collaborators_url"();
+        auto c = client.getContent(url);
         auto j = parseJSON(c);
     }
+}
+
+class PullRequest : LazyJSONObject {
+    const size_t id;
+
+    this(Client c, JSONValue o) {
+        super(c, o);
+        this.id = o["id"].integer;
+    }
+
+    this(Client c, size_t id) {
+        auto url = c.getRootURL("pulls_url")
+            .replace("{/number}", text("/", id));
+        super(c, url);
+        this.id = id;
+    }
+
+    @property public string state() { return getStr!"state"(); }
+    @property public string title() { return getStr!"title"(); }
+    @property public string body_() { return getStr!"body"(); }
+    @property public string created_at() { return getStr!"created_at"(); }
+    @property public string updated_at() { return getStr!"updated_at"(); }
+    @property public string closed_at() { return getStr!"closed_at"(); }
+    @property public string merged_at() { return getStr!"merged_at"(); }
+    @property public bool locked() { return getBool!"merged_at"(); }
 }
 
 struct paginated(T) {
@@ -278,7 +318,9 @@ unittest {
     auto repo = user.getRepo("phobos");
     //foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
     writeln(repo.description);
-    repo.pullRequests();
+    foreach (pr; repo.pullRequests()) {
+        writeln("PR: ", pr.title);
+    }
     size_t n = 0;
     foreach(u; repo.contributors()) {
         if (n > 40) break;
