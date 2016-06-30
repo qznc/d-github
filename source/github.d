@@ -7,7 +7,7 @@ import std.array : empty;
 import std.string : replace;
 import std.process : environment;
 import std.regex : ctRegex, matchFirst;
-import std.algorithm : splitter;
+import std.algorithm : splitter, map;
 import std.datetime : Clock, SysTime, dur;
 import std.exception : assertThrown;
 
@@ -19,7 +19,7 @@ enum GITHUB_ROOT = "https://api.github.com";
 auto getResponse(string url) {
     auto token = environment["GITHUB_OAUTH_TOKEN"];
     auto rq = HTTPRequest();
-    rq.verbosity = 2;
+    rq.verbosity = 2; // DEBUG
     rq.addHeaders(["Authorization": "token "~token,
         "Accept": ACCEPT_JSON]);
     return rq.get(url);
@@ -119,7 +119,7 @@ class Client {
 
     string getContent(string url) {
         auto rq = HTTPRequest();
-        rq.verbosity = 2; // DEBUG
+        rq.verbosity = 1; // DEBUG
         auto now = Clock.currTime();
         if (url in cacheinfo) {
             /* we have something in cache */
@@ -249,18 +249,36 @@ class PullRequest : LazyJSONObject {
     @property public string state() { return getStr!"state"(); }
     @property public string title() { return getStr!"title"(); }
     @property public string body_() { return getStr!"body"(); }
-    @property public string created_at() { return getStr!"created_at"(); }
-    @property public string updated_at() { return getStr!"updated_at"(); }
-    @property public string closed_at() { return getStr!"closed_at"(); }
-    @property public string merged_at() { return getStr!"merged_at"(); }
+    @property public string createdAt() { return getStr!"created_at"(); }
+    @property public string updatedAt() { return getStr!"updated_at"(); }
+    @property public string closedAt() { return getStr!"closed_at"(); }
+    @property public string mergedAt() { return getStr!"merged_at"(); }
     @property public bool locked() { return getBool!"locked"(); }
     @property public bool merged() { return getBool!"merged"(); }
     @property public bool mergeable() { return getBool!"mergeable"(); }
-    @property public size_t comments() { return getInt!"comments"(); }
+    @property public size_t commentCount() { return getInt!"comments"(); }
     @property public size_t commits() { return getInt!"commits"(); }
     @property public size_t additions() { return getInt!"additions"(); }
     @property public size_t deletions() { return getInt!"deletions"(); }
     @property public size_t changedFiles() { return getInt!"changed_files"(); }
+
+    @property public auto comments() {
+        auto url = getStr!"comments_url"();
+        auto c = client.getContent(url);
+        auto j = parseJSON(c);
+        return map!((JSONValue v)=>new Comment(client,v))(j.array);
+    }
+}
+
+class Comment {
+    JSONValue data;
+    this(Client c, JSONValue o) {
+        this.data = o;
+    }
+
+    @property public string body_() { return data["body"].str; }
+    @property public string createdAt() { return data["created_at"].str; }
+    @property public string updatedAt() { return data["updated_at"].str; }
 }
 
 struct paginated(T) {
@@ -323,7 +341,11 @@ unittest {
     //foreach (string k,v; repo.rinfo) writeln(k, ": ", v);
     writeln(repo.description);
     foreach (pr; repo.pullRequests()) {
-        writeln("PR: ", pr.title);
+        writeln("PR: ", pr.title, " with ", pr.commits, " commits");
+        foreach (c; pr.comments) {
+            writeln("Comment: ", c.body_);
+            break;
+        }
         break;
     }
     size_t n = 0;
