@@ -121,7 +121,8 @@ class Client {
         auto rq = HTTPRequest();
         rq.verbosity = 1; // DEBUG
         auto now = Clock.currTime();
-        if (url in cacheinfo) {
+        immutable cached = url in cacheinfo;
+        if (cached) {
             /* we have something in cache */
             auto meta = cacheinfo[url];
             if ((now - meta.last_get) < NO_GET_DURATION) {
@@ -139,6 +140,10 @@ class Client {
                 "User-Agent": appname,
                 "Accept": ACCEPT_JSON]);
         auto res = rq.get(url);
+        if (res.statusCode == 304 && cached) {
+            /* content not modified, can serve from cache */
+            return cache[url];
+        }
         auto txt = text(res.responseBody);
         insertIntoCache(url, txt, now,
             res.responseHeaders.get("etag", ""),
