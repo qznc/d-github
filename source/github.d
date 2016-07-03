@@ -76,12 +76,100 @@ class LazyJSONObject {
     }
 }
 
+struct urlCache {
+    static immutable NO_GET_DURATION = dur!"seconds"(10);
+    static immutable CACHE_MAX_SIZE = 16 * 1024 * 1024;
+
+    this(string userAgent) {
+        this.user_agent = userAgent;
+    }
+
+    struct entry {
+        SysTime last_get;
+        string url, etag, mdate, content;
+        int opCmp(ref const entry e) const {
+            if (e.last_get < this.last_get) return -1;
+            if (e.last_get > this.last_get) return  1;
+            if (e.content.length < this.content.length) return -1;
+            if (e.content.length > this.content.length) return  1;
+            if (e.url < this.url) return -1;
+            if (e.url > this.url) return  1;
+            return 0;
+        }
+    }
+    entry[] cache;
+    size_t[string] url_index;
+    size_t total_cache_size;
+    string user_agent = "D-Github";
+
+    bool has(string url) {
+        return null !is (url in url_index);
+    }
+
+    const(string) getContent(string url) {
+        auto rq = HTTPRequest();
+        rq.verbosity = 1; // DEBUG
+        auto now = Clock.currTime();
+        const cache_index = url in url_index;
+        if (cache_index !is null) {
+            /* we have something in cache */
+            const e = cache[*cache_index];
+            if ((now - e.last_get) < NO_GET_DURATION) {
+                return e.content;
+            }
+            /* try to avoid data transfer via etag */
+            if (e.etag)
+                rq.addHeaders(["If-None-Match": e.etag]);
+            if (e.mdate)
+                rq.addHeaders(["If-Modified-Since": e.mdate]);
+        }
+        /* actual network access */
+        auto token = environment["GITHUB_OAUTH_TOKEN"];
+        rq.addHeaders(["Authorization": "token "~token,
+                "User-Agent": user_agent,
+                "Accept": ACCEPT_JSON]);
+        auto res = rq.get(url);
+        if (res.code == 304 && cache_index !is null) {
+            /* content not modified, can serve from cache */
+            return cache[*cache_index].content;
+        }
+        auto txt = text(res.responseBody);
+        insertIntoCache(url, txt, now,
+                res.responseHeaders.get("etag", ""),
+                res.responseHeaders.get("Last-Modified", ""));
+        return txt;
+    }
+
+    void insertIntoCache(const string url, const string data,
+        const SysTime last_get = Clock.currTime(),
+        const string etag = "", const string mdate = "")
+    {
+        if (total_cache_size > CACHE_MAX_SIZE) {
+            /* Evict things from cache */
+            size_t free_size = 0;
+            const free_target = total_cache_size - (CACHE_MAX_SIZE * 2 / 3);
+            foreach (i, e; cache) {
+                free_size += e.content.length;
+                url_index.remove(e.url);
+                if (free_size > free_target) {
+                    assert (free_size <= total_cache_size);
+                    cache = cache[i..$];
+                    break;
+                }
+            }
+        }
+        this.url_index[url] = cache.length;
+        this.cache ~= entry(last_get, url, etag, mdate, data);
+        this.total_cache_size += data.length;
+    }
+}
+
 class Client {
-    string appname;
     string[string] roots_;
+    urlCache cache;
 
     this(string appname) {
-        this.appname = appname;
+        cache = urlCache(appname);
     }
 
     public auto getUser(string name) {
@@ -106,59 +194,15 @@ class Client {
         return roots_;
     }
 
-    /* To reduce traffic, we need some CACHING */
-    immutable NO_GET_DURATION = dur!"seconds"(10);
-    struct url_metainfo {
-        size_t content_size;
-        SysTime last_get;
-        string etag, mdate;
-    }
-    url_metainfo[string] cacheinfo;
-    string[string] cache;
-    size_t cache_size;
-
     string getContent(string url) {
-        auto rq = HTTPRequest();
-        rq.verbosity = 1; // DEBUG
-        auto now = Clock.currTime();
-        immutable cached = url in cacheinfo;
-        if (cached) {
-            /* we have something in cache */
-            auto meta = cacheinfo[url];
-            if ((now - meta.last_get) < NO_GET_DURATION) {
-                return cache[url];
-            }
-            /* try to avoid data transfer via etag */
-            if (meta.etag)
-                rq.addHeaders(["If-None-Match": meta.etag]);
-            if (meta.mdate)
-                rq.addHeaders(["If-Modified-Since": meta.mdate]);
-        }
-        /* actual network access */
-        auto token = environment["GITHUB_OAUTH_TOKEN"];
-        rq.addHeaders(["Authorization": "token "~token,
-                "User-Agent": appname,
-                "Accept": ACCEPT_JSON]);
-        auto res = rq.get(url);
-        if (res.statusCode == 304 && cached) {
-            /* content not modified, can serve from cache */
-            return cache[url];
-        }
-        auto txt = text(res.responseBody);
-        insertIntoCache(url, txt, now,
-            res.responseHeaders.get("etag", ""),
-            res.responseHeaders.get("Last-Modified", ""));
-        return txt;
+        return cache.getContent(url);
     }
 
     void insertIntoCache(string url, string data,
         SysTime last_get = Clock.currTime(),
         string etag = "", string mdate = "")
     {
-        cacheinfo[url] = url_metainfo(data.length, last_get, etag, mdate);
-        cache[url] = data;
-        cache_size += data.length;
-        // TODO Evict things from cache! This is a memory leak.
+        cache.insertIntoCache(url, data, last_get, etag, mdate);
     }
 }
 
