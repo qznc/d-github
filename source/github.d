@@ -50,11 +50,16 @@ enum GITHUB_ROOT = "https://api.github.com";
     }
 
     @trusted @property private string getStr(string key)() {
-        const v = jsonObj[key];
-        if (v.type == JSON_TYPE.STRING)
-            return v.str;
-        else
-            return null;
+        import core.exception : RangeError;
+        try {
+            const v = jsonObj[key];
+            if (v.type == JSON_TYPE.STRING)
+                return v.str;
+            else
+                return null;
+        } catch (RangeError e) {
+            throw new Exception("No attribute '"~key~"'");
+        }
     }
 
     @trusted @property private size_t getInt(string key)() {
@@ -172,15 +177,18 @@ enum GITHUB_ROOT = "https://api.github.com";
         cache = urlCache(appname);
     }
 
-    public auto getUser(string name) {
+    public User getUser(string name) {
         return new User(this, name);
     }
 
-    public auto getRepo(string user, string repo) {
+    public Repo getRepo(string user, string repo) {
         return new Repo(this, user, repo);
     }
 
-    public auto getRootURL(string key) {
+    public string getRootURL(string key) {
+        auto e = key in roots;
+        if (e == null)
+            throw new Exception("Github API provided no URL for '"~key~"'");
         return roots[key];
     }
 
@@ -283,10 +291,10 @@ class Contributor : User {
     }
 }
 
-class PullRequest : LazyJSONObject {
+@safe class PullRequest : LazyJSONObject {
     const size_t id;
 
-    this(Client c, JSONValue o) {
+    @trusted this(Client c, JSONValue o) {
         this(c, o["_links"]["self"]["href"].str);
     }
 
@@ -311,7 +319,7 @@ class PullRequest : LazyJSONObject {
     @property public size_t deletions() { return getInt!"deletions"(); }
     @property public size_t changedFiles() { return getInt!"changed_files"(); }
 
-    @property public auto comments() {
+    @trusted @property public auto comments() {
         auto url = getStr!"comments_url"();
         auto c = client.getContent(url);
         auto j = parseJSON(c);
@@ -319,15 +327,15 @@ class PullRequest : LazyJSONObject {
     }
 }
 
-class Comment {
+@safe class Comment {
     JSONValue data;
     this(Client c, JSONValue o) {
         this.data = o;
     }
 
-    @property public string body_() { return data["body"].str; }
-    @property public string createdAt() { return data["created_at"].str; }
-    @property public string updatedAt() { return data["updated_at"].str; }
+    @trusted @property public string body_() { return data["body"].str; }
+    @trusted @property public string createdAt() { return data["created_at"].str; }
+    @trusted @property public string updatedAt() { return data["updated_at"].str; }
 }
 
 @safe struct paginated(T) {
@@ -381,7 +389,7 @@ class Comment {
     }
 }
 
-unittest {
+@safe unittest {
     auto github = new Client("https://github.com/qznc/d-github");
     //foreach(k,v; github.roots) writeln(k, ": ", v);
     auto user = github.getUser("dlang");
@@ -407,7 +415,7 @@ unittest {
     writeln(u2.name);
 }
 
-unittest {
+@safe unittest {
     auto github = new Client("https://github.com/qznc/d-github");
     github.insertIntoCache(GITHUB_ROOT, `{
             "current_user_url": "https://api.github.com/user",
@@ -420,6 +428,5 @@ unittest {
     /* check we actually got the entry from cache */
     assert (github.getRootURL("fake_entry") == "HAHAHA");
     /* the cache entry has no url for user info */
-    import core.exception : RangeError;
-    assertThrown!RangeError(github.getUser("dlang").name);
+    assertThrown(github.getUser("dlang"));
 }
