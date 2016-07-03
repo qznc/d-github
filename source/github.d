@@ -16,7 +16,7 @@ import requests : HTTPRequest;
 enum ACCEPT_JSON = "application/vnd.github.v3+json";
 enum GITHUB_ROOT = "https://api.github.com";
 
-auto getResponse(string url) {
+@trusted auto getResponse(string url) {
     auto token = environment["GITHUB_OAUTH_TOKEN"];
     auto rq = HTTPRequest();
     rq.verbosity = 2; // DEBUG
@@ -26,7 +26,7 @@ auto getResponse(string url) {
 }
 
 /* fetch JSON info on demand */
-class LazyJSONObject {
+@safe class LazyJSONObject {
     Client client;
     string url;
     JSONValue value;
@@ -41,7 +41,7 @@ class LazyJSONObject {
         this.value = v;
     }
 
-    @property private JSONValue jsonObj() {
+    @trusted @property private JSONValue jsonObj() {
         if (value.isNull) {
             auto c = client.getContent(url);
             value = parseJSON(c);
@@ -49,7 +49,7 @@ class LazyJSONObject {
         return value;
     }
 
-    @property private string getStr(string key)() {
+    @trusted @property private string getStr(string key)() {
         const v = jsonObj[key];
         if (v.type == JSON_TYPE.STRING)
             return v.str;
@@ -57,7 +57,7 @@ class LazyJSONObject {
             return null;
     }
 
-    @property private size_t getInt(string key)() {
+    @trusted @property private size_t getInt(string key)() {
         const v = jsonObj[key];
         if (v.type == JSON_TYPE.INTEGER)
             return v.integer;
@@ -65,7 +65,7 @@ class LazyJSONObject {
             return 0;
     }
 
-    @property private bool getBool(string key)() {
+    @trusted @property private bool getBool(string key)() {
         const v = jsonObj[key];
         if (v.type == JSON_TYPE.TRUE)
             return true;
@@ -76,7 +76,7 @@ class LazyJSONObject {
     }
 }
 
-struct urlCache {
+@safe struct urlCache {
     static immutable NO_GET_DURATION = dur!"seconds"(10);
     static immutable CACHE_MAX_SIZE = 16 * 1024 * 1024;
 
@@ -106,7 +106,7 @@ struct urlCache {
         return null !is (url in url_index);
     }
 
-    const(string) getContent(string url) {
+    @trusted const(string) getContent(string url) {
         auto rq = HTTPRequest();
         rq.verbosity = 1; // DEBUG
         auto now = Clock.currTime();
@@ -164,7 +164,7 @@ struct urlCache {
     }
 }
 
-class Client {
+@safe class Client {
     string[string] roots_;
     urlCache cache;
 
@@ -184,7 +184,7 @@ class Client {
         return roots[key];
     }
 
-    @property public const(string[string]) roots() {
+    @trusted @property public const(string[string]) roots() {
         if (roots_ == null) {
             auto c = this.getContent(GITHUB_ROOT);
             auto j = parseJSON(c);
@@ -206,7 +206,7 @@ class Client {
     }
 }
 
-class User : LazyJSONObject {
+@safe class User : LazyJSONObject {
     const string name_;
 
     this(Client c, string name) {
@@ -236,13 +236,13 @@ class User : LazyJSONObject {
 
 class Contributor : User {
     public const size_t contributionCount;
-    this(Client c, JSONValue contributor) {
+    @trusted this(Client c, JSONValue contributor) {
         super(c, contributor["login"].str);
         contributionCount = contributor["contributions"].integer;
     }
 }
 
-class Repo : LazyJSONObject {
+@safe class Repo : LazyJSONObject {
     const string uname_;
     const string rname_;
 
@@ -276,7 +276,7 @@ class Repo : LazyJSONObject {
         return paginated!Contributor(client, url);
     }
 
-    @property public auto collaborators() {
+    @trusted @property public auto collaborators() {
         auto url = getStr!"collaborators_url"();
         auto c = client.getContent(url);
         auto j = parseJSON(c);
@@ -330,7 +330,7 @@ class Comment {
     @property public string updatedAt() { return data["updated_at"].str; }
 }
 
-struct paginated(T) {
+@safe struct paginated(T) {
     immutable int default_items_per_page = 30;
     size_t items_on_page = default_items_per_page;
     size_t i = 0;
@@ -344,7 +344,7 @@ struct paginated(T) {
         updateCurrent();
     }
 
-    @property auto front() {
+    @trusted @property auto front() {
         return new T(client_, current[i]);
     }
 
@@ -359,7 +359,7 @@ struct paginated(T) {
 
     @property bool empty() { return current.isNull; }
 
-    private void updateCurrent() {
+    @trusted private void updateCurrent() {
         if (next_url == null) {
             current = null;
             return;
