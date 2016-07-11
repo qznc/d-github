@@ -19,7 +19,7 @@ enum GITHUB_ROOT = "https://api.github.com";
 @trusted auto getResponse(string url) {
     auto token = environment["GITHUB_OAUTH_TOKEN"];
     auto rq = HTTPRequest();
-    rq.verbosity = 2; // DEBUG
+    //rq.verbosity = 2; // DEBUG
     rq.addHeaders(["Authorization": "token "~token,
         "Accept": ACCEPT_JSON]);
     return rq.get(url);
